@@ -1,0 +1,304 @@
+/* ============================================================================
+   Tome & Table - switchable shell layouts
+   ----------------------------------------------------------------------------
+   Activated by the integration layer with:
+       document.getElementById('app').dataset.layout = '<id>';
+   Every rule in this file is scoped under #app[data-layout="<id>"] so that the
+   stylesheet is inert until a layout is chosen. app.css is never touched.
+
+   Shared constraints honoured by all layouts below:
+     * no horizontal page scrolling at 375 / 768 / 1024 / 1366 / 1920 px
+     * the bottom nav (< 900 px) keeps working - desktop-only rules live inside
+       @media (min-width: 900px) or (min-width: 1201px)
+     * whenever a layout changes .main padding it re-matches the negative
+       margins of the sticky .tabs bar and of the .notes grid
+   ========================================================================== */
+
+
+/* ---------------------------------------------------------------------------
+   1. rail - "Side rail"
+   ---------------------------------------------------------------------------
+   The default shell, exactly as defined in css/app.css: 72 px icon+label rail
+   on the left, header + main in the middle, 300 px "Linked notes" utility panel
+   on the right, bottom nav below 900 px.
+   This layout intentionally contributes NO rules - it is also what you get when
+   the data-layout attribute is absent entirely.
+   ------------------------------------------------------------------------ */
+
+
+/* ---------------------------------------------------------------------------
+   2. topbar - "Top bar"
+   Navigation runs horizontally across the very top: logo left, view buttons
+   inline (icon + label), settings pushed to the right by .rail-spacer.
+   Content spans the full width underneath; the utility panel stays on the right.
+   Below 900 px everything falls back to the standard bottom-nav shell.
+   ------------------------------------------------------------------------ */
+@media (min-width: 1201px) {
+  #app[data-layout="topbar"] {
+    grid-template-columns: minmax(0, 1fr) var(--utility);
+    grid-template-rows: auto minmax(0, 1fr);
+    grid-template-areas: "rail rail" "center utility";
+  }
+}
+@media (min-width: 900px) and (max-width: 1200px) {
+  #app[data-layout="topbar"] {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+    grid-template-areas: "rail" "center";
+  }
+}
+@media (min-width: 900px) {
+  #app[data-layout="topbar"] .rail {
+    flex-direction: row;
+    align-items: center;
+    gap: 2px;
+    padding: 6px 14px;
+    min-width: 0;
+    overflow-x: auto;
+    scrollbar-width: none;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+  #app[data-layout="topbar"] .rail::-webkit-scrollbar { display: none; }
+  #app[data-layout="topbar"] .rail-logo {
+    padding: 0 16px 0 2px;
+    font-size: 1.1rem;
+    white-space: nowrap;
+    flex: none;
+  }
+  #app[data-layout="topbar"] .rail .rail-btn {
+    flex-direction: row;
+    gap: 8px;
+    padding: 8px 14px;
+    min-height: 44px;
+    white-space: nowrap;
+    flex: none;
+  }
+  #app[data-layout="topbar"] .rail .rail-label { font-size: .9rem; }
+  #app[data-layout="topbar"] .rail-spacer { flex: 1 1 auto; min-width: 10px; }
+}
+
+
+/* ---------------------------------------------------------------------------
+   3. focus - "Focus"
+   Distraction-free reading. The utility panel is gone at every width, the rail
+   shrinks to a 56 px icon-only strip, and .main content is centred in a ~980 px
+   column with generous padding. Notes drop the backlinks pane and narrow the
+   file list. Cards get a slightly larger radius.
+   ------------------------------------------------------------------------ */
+#app[data-layout="focus"] { --rail: 56px; }
+#app[data-layout="focus"] .utility { display: none; }
+#app[data-layout="focus"] .card { border-radius: 16px; }
+
+@media (min-width: 900px) {
+  #app[data-layout="focus"] {
+    grid-template-columns: var(--rail) minmax(0, 1fr);
+    grid-template-areas: "rail center";
+  }
+  #app[data-layout="focus"] .rail { padding: 10px 6px; }
+  #app[data-layout="focus"] .rail-logo { font-size: .95rem; padding: 8px 0 12px; }
+  #app[data-layout="focus"] .rail .rail-label { display: none; }
+  #app[data-layout="focus"] .rail .rail-btn { padding: 12px 2px; min-height: 48px; }
+
+  /* Centred reading column. .main padding becomes 28px, so the sticky .tabs
+     negative margins / top offset and the .notes margin are re-matched to it. */
+  #app[data-layout="focus"] .main { padding: 28px; }
+  #app[data-layout="focus"] .main > :not(.tabs):not(.notes) {
+    max-width: 980px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+  #app[data-layout="focus"] .tabs {
+    margin: -28px -28px 20px;
+    /* keeps tab labels aligned with the centred 980px column */
+    padding: 0 max(28px, calc(28px + (100% - 980px) / 2));
+    top: -28px;
+  }
+  #app[data-layout="focus"] .notes {
+    margin: -28px;
+    grid-template-columns: 200px minmax(0, 1fr);
+  }
+  #app[data-layout="focus"] .main > .settings { max-width: 760px; }
+  #app[data-layout="focus"] .notes-side.right { display: none; }
+  #app[data-layout="focus"] .editor-body textarea { padding: 22px 28px; }
+  #app[data-layout="focus"] .editor-body .preview { padding: 22px 30px; }
+}
+
+
+/* ---------------------------------------------------------------------------
+   4. dashboard - "Dashboard"
+   The linked-notes panel moves to the LEFT of the content (straight after the
+   rail) and widens to 340 px. Card grids densify, and the sheet tab bar turns
+   into a vertical column pinned to the left edge of #main. Everything below
+   1200 px degrades to the plain `rail` shell.
+   ------------------------------------------------------------------------ */
+@media (min-width: 1201px) {
+  #app[data-layout="dashboard"] {
+    --utility: 340px;
+    grid-template-columns: var(--rail) var(--utility) minmax(0, 1fr);
+    grid-template-areas: "rail utility center";
+  }
+  #app[data-layout="dashboard"] .utility {
+    border-left: 0;
+    border-right: 1px solid var(--border);
+  }
+  #app[data-layout="dashboard"] .utility .pane-body { padding: 10px 12px; }
+
+  /* vertical tab column on the sheet */
+  #app[data-layout="dashboard"][data-view="sheet"] .main {
+    display: grid;
+    grid-template-columns: 176px minmax(0, 1fr);
+    column-gap: 20px;
+    align-content: start;
+  }
+  /* "no character selected" placeholder still spans the whole area */
+  #app[data-layout="dashboard"][data-view="sheet"] .main > .empty { grid-column: 1 / -1; }
+  #app[data-layout="dashboard"][data-view="sheet"] .tabs {
+    flex-direction: column;
+    align-items: stretch;
+    align-self: start;
+    position: sticky;
+    top: 0;
+    margin: 0;
+    padding: 0 12px 0 0;
+    overflow: visible;
+    background: transparent;
+    border-bottom: 0;
+    border-right: 1px solid var(--border);
+  }
+  #app[data-layout="dashboard"][data-view="sheet"] .tab {
+    text-align: left;
+    min-height: 42px;
+    padding: 10px 12px;
+    border-bottom: 0;
+    border-left: 2px solid transparent;
+    border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  }
+  #app[data-layout="dashboard"][data-view="sheet"] .tab.active {
+    border-left-color: var(--accent);
+    background: var(--accent-soft);
+  }
+}
+
+/* denser card grids on wide screens */
+@media (min-width: 1400px) {
+  #app[data-layout="dashboard"] .grid.cols-2 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (min-width: 900px) {
+  /* abilities stay 6-up all the way down to 900px (app.css drops to 3 at 1100) */
+  #app[data-layout="dashboard"] .abilities { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+  #app[data-layout="dashboard"] .ability { padding: 8px 4px 6px; }
+  #app[data-layout="dashboard"] .ability .ab-mod { font-size: 1.6rem; padding: 2px 6px; }
+  #app[data-layout="dashboard"] .ability .ab-score { width: 50px; }
+  /* narrower skill columns so the dense card grids never overflow sideways */
+  #app[data-layout="dashboard"] .skills { grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 2px 14px; }
+  #app[data-layout="dashboard"] .grid { gap: 12px; }
+  #app[data-layout="dashboard"] .grid.auto { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
+}
+
+
+/* ---------------------------------------------------------------------------
+   5. compact - "Compact"
+   Dense table-side layout for a ~10-inch tablet: 14 px base type, roughly 60%
+   padding, 8 px card radius, 60 px icon-only rail, 260 px utility panel.
+   Nothing is hidden - just tighter. These rules apply at every width (including
+   the bottom-nav breakpoint), so .tabs / .notes offsets are re-matched
+   unconditionally to the new 12 px .main padding.
+   ------------------------------------------------------------------------ */
+#app[data-layout="compact"] {
+  --rail: 60px;
+  --utility: 260px;
+  --topbar: 52px;
+  font-size: 14px;
+}
+#app[data-layout="compact"] h1 { font-size: 1.25rem; }
+#app[data-layout="compact"] h2 { font-size: 1.1rem; }
+#app[data-layout="compact"] h3 { font-size: 1rem; }
+
+/* shell */
+#app[data-layout="compact"] .rail { padding: 8px 6px; gap: 2px; }
+#app[data-layout="compact"] .rail-logo { padding: 6px 0 10px; font-size: .95rem; }
+#app[data-layout="compact"] .rail .rail-label { display: none; }
+#app[data-layout="compact"] .rail .rail-btn { padding: 9px 2px; min-height: 46px; }
+#app[data-layout="compact"] .topbar { min-height: var(--topbar); padding: 6px 12px; gap: 10px; }
+#app[data-layout="compact"] .main { padding: 12px; }
+#app[data-layout="compact"] .utility .pane-body { padding: 6px; }
+#app[data-layout="compact"] .utility .pane-tabs button { padding: 8px; }
+
+/* controls */
+#app[data-layout="compact"] input,
+#app[data-layout="compact"] textarea,
+#app[data-layout="compact"] select { min-height: 32px; padding: 5px 8px; }
+#app[data-layout="compact"] textarea { min-height: 72px; }
+#app[data-layout="compact"] .btn { min-height: 32px; padding: 5px 10px; }
+#app[data-layout="compact"] .btn.small { min-height: 26px; padding: 3px 8px; }
+#app[data-layout="compact"] .icon-btn { width: 32px; height: 32px; }
+#app[data-layout="compact"] .icon-btn.small { width: 26px; height: 26px; }
+#app[data-layout="compact"] .chip { min-height: 26px; padding: 3px 8px; font-size: .82rem; }
+#app[data-layout="compact"] .row { gap: 8px; }
+#app[data-layout="compact"] .stack { gap: 8px; }
+
+/* cards, grids, lists */
+#app[data-layout="compact"] .card { padding: 9px 10px; border-radius: 8px; }
+#app[data-layout="compact"] .card h3 { margin-bottom: 5px; }
+#app[data-layout="compact"] .card-head { margin-bottom: 6px; gap: 8px; }
+#app[data-layout="compact"] .grid { gap: 9px; }
+#app[data-layout="compact"] .list-item,
+#app[data-layout="compact"] .spell-item { padding: 6px 0; gap: 8px; }
+#app[data-layout="compact"] .slot-row { padding: 4px 0; }
+#app[data-layout="compact"] .empty { padding: 16px 8px; }
+#app[data-layout="compact"] .skill { min-height: 34px; padding: 2px 0; }
+#app[data-layout="compact"] .skills { gap: 0 14px; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
+#app[data-layout="compact"] .avatar { width: 48px; height: 48px; font-size: 1.1rem; }
+#app[data-layout="compact"] .char-card { grid-template-columns: 48px minmax(0, 1fr); gap: 10px; }
+
+/* sticky tabs - margins re-matched to the 12px .main padding */
+#app[data-layout="compact"] .tabs { margin: -12px -12px 12px; padding: 0 12px; top: -12px; }
+#app[data-layout="compact"] .tab { padding: 8px 11px; min-height: 38px; }
+
+/* header vitals */
+#app[data-layout="compact"] .sheet-head { gap: 10px; }
+#app[data-layout="compact"] .sheet-title input.title { font-size: 1.15rem; }
+#app[data-layout="compact"] .vitals { gap: 6px; }
+#app[data-layout="compact"] .vital { min-width: 52px; padding: 2px 6px; }
+#app[data-layout="compact"] .vital b { font-size: 1.05rem; }
+#app[data-layout="compact"] .vital span { font-size: .6rem; }
+#app[data-layout="compact"] .vital input { width: 46px; min-height: 26px; font-size: .95rem; }
+#app[data-layout="compact"] .hp-block { padding: 2px 6px; gap: 4px; }
+#app[data-layout="compact"] .hp-block .hp-cur { width: 48px; min-height: 28px; font-size: 1rem; }
+#app[data-layout="compact"] .hp-block .hp-max { width: 40px; min-height: 26px; }
+#app[data-layout="compact"] .hp-block .hp-temp { width: 38px; min-height: 26px; }
+
+/* abilities */
+#app[data-layout="compact"] .ability { padding: 6px 4px 5px; gap: 2px; }
+#app[data-layout="compact"] .ability .ab-mod { font-size: 1.45rem; padding: 2px 8px; }
+#app[data-layout="compact"] .ability .ab-score { width: 46px; min-height: 26px; }
+#app[data-layout="compact"] .ability .ab-save { font-size: .78rem; margin-top: 0; }
+#app[data-layout="compact"] .prof-toggle { width: 20px; height: 20px; }
+#app[data-layout="compact"] .pip { width: 18px; height: 18px; }
+#app[data-layout="compact"] .pips { gap: 4px; }
+
+/* notes - grid margin re-matched to the 12px .main padding */
+#app[data-layout="compact"] .notes { margin: -12px; grid-template-columns: 230px minmax(0, 1fr) 230px; }
+#app[data-layout="compact"] .notes-side .pane-head { padding: 8px 8px 6px; }
+#app[data-layout="compact"] .notes-side .pane-body { padding: 0 6px 8px; }
+#app[data-layout="compact"] .notes-side h4 { padding: 8px 6px 4px; }
+#app[data-layout="compact"] .tree-item { min-height: 32px; padding: 5px 6px; }
+#app[data-layout="compact"] .tree-item.indent { padding-left: 22px; }
+#app[data-layout="compact"] .editor-head { padding: 6px 10px; gap: 6px; }
+#app[data-layout="compact"] .editor-head input.title { font-size: 1.05rem; }
+#app[data-layout="compact"] .editor-body textarea { padding: 12px 14px; font-size: .9rem; }
+#app[data-layout="compact"] .editor-body .preview { padding: 12px 16px; }
+#app[data-layout="compact"] .toolbar { padding: 4px 8px; }
+#app[data-layout="compact"] .toolbar button { height: 28px; min-width: 30px; }
+#app[data-layout="compact"] .backlink { padding: 6px; }
+#app[data-layout="compact"] .settings { gap: 10px; }
+
+@media (max-width: 1200px) {
+  #app[data-layout="compact"] .notes { grid-template-columns: 210px minmax(0, 1fr); }
+}
+@media (max-width: 899px) {
+  #app[data-layout="compact"] .notes { grid-template-columns: minmax(0, 1fr); }
+  #app[data-layout="compact"] .bottomnav .rail-btn { min-height: 48px; padding: 5px 2px; }
+  #app[data-layout="compact"] .bottomnav .rail-label { font-size: .68rem; }
+}

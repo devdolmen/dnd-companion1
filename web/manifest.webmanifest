@@ -1,0 +1,23 @@
+{
+  "name": "Tome & Table",
+  "short_name": "Tome & Table",
+  "description": "Offline D&D 5e character sheet and campaign notebook.",
+  "id": "/index.html",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#15120f",
+  "theme_color": "#15120f",
+  "lang": "en",
+  "categories": ["games", "productivity"],
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Character sheet", "url": "./index.html#sheet", "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Notes", "url": "./index.html#notes", "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }] }
+  ]
+}

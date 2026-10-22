@@ -1,0 +1,12 @@
+/* WYSIWYG note editor (js/wysiwyg.js). Content styling comes from the shared .md rules in app.css. */
+.wysiwyg { padding: 18px 26px; min-height: 300px; outline: none; cursor: text; caret-color: var(--accent); overflow-wrap: break-word; }
+.wysiwyg:empty::before { content: attr(data-placeholder); color: var(--muted); pointer-events: none; }
+.wysiwyg[contenteditable="false"] { cursor: default; }
+.wysiwyg a.wikilink, .wysiwyg a.tag { cursor: pointer; }
+.wysiwyg li.task input[type="checkbox"] { cursor: pointer; }
+.wysiwyg[contenteditable="false"] li.task input[type="checkbox"] { cursor: default; }
+/* empty cells keep their height so they stay clickable */
+.wysiwyg table td:empty::after, .wysiwyg table th:empty::after { content: '\00a0'; }
+.wysiwyg th, .wysiwyg td { min-width: 3em; }
+/* [[ suggestions (uses .popover / .tree-item from app.css) */
+.wysiwyg-suggest { min-width: 200px; max-width: 320px; max-height: 220px; overflow: auto; }

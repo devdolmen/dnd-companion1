@@ -1,0 +1,579 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Tome & Table — tests</title>
+<style>
+  body { font: 14px/1.5 ui-monospace, Consolas, monospace; background: #15120f; color: #efe6d8; padding: 20px; }
+  .pass { color: #6fa06a; } .fail { color: #c9553d; } h1 { font-size: 18px; }
+  #summary { font-weight: bold; margin: 12px 0; }
+</style>
+</head>
+<body>
+<h1>Tome &amp; Table unit tests</h1>
+<div id="summary">running…</div>
+<div id="out"></div>
+<script type="module">
+import * as R from './js/rules.js';
+import * as M from './js/markdown.js';
+import { parseAurora } from './js/aurora.js';
+let SCHEMES, DEFAULT_SCHEME, LAYOUTS, DEFAULT_LAYOUT, appearanceError = null;
+try {
+  ({ SCHEMES, DEFAULT_SCHEME } = await import('./js/data/schemes.js'));
+  ({ LAYOUTS, DEFAULT_LAYOUT } = await import('./js/data/layouts.js'));
+} catch (e) { appearanceError = e; }
+
+const out = document.getElementById('out');
+let pass = 0, fail = 0;
+function t(name, fn) {
+  try { fn(); pass++; out.insertAdjacentHTML('beforeend', `<div class="pass">✔ ${name}</div>`); }
+  catch (e) { fail++; out.insertAdjacentHTML('beforeend', `<div class="fail">✘ ${name} — ${e.message}</div>`); console.error(name, e); }
+}
+const eq = (a, b, msg = '') => { if (JSON.stringify(a) !== JSON.stringify(b)) throw new Error(`${msg} expected ${JSON.stringify(b)} got ${JSON.stringify(a)}`); };
+
+const sophorke = {
+  classes: [{ name: 'Sorcerer', level: 1 }],
+  abilities: { str: 8, dex: 14, con: 14, int: 13, wis: 10, cha: 19 },
+  saveProf: { con: true, cha: true },
+  skillProf: { arcana: 1, athletics: 1, deception: 1, survival: 1 },
+  hp: { current: 8, max: 8, temp: 0 }, hitDice: { total: 1, used: 1, die: 6 },
+  spellcasting: { ability: 'cha', slots: { 1: { max: 2, used: 2 } } },
+  features: [
+    { name: 'Stone Gaze', uses: { max: 1, used: 1, reset: 'long' } },
+    { name: 'Short thing', uses: { max: 2, used: 2, reset: 'short' } },
+  ],
+  inventory: [{ name: 'Trap', qty: 1, weight: 25 }, { name: 'Torches', qty: 10, weight: 1 }],
+  exhaustion: 2, deathSaves: { s: 1, f: 2 },
+};
+
+// ---- rules ----
+t('abilityMod', () => { eq(R.abilityMod(8), -1); eq(R.abilityMod(10), 0); eq(R.abilityMod(11), 0); eq(R.abilityMod(19), 4); eq(R.abilityMod(1), -5); eq(R.abilityMod(30), 10); });
+t('fmtMod', () => { eq(R.fmtMod(3), '+3'); eq(R.fmtMod(0), '+0'); eq(R.fmtMod(-2), '-2'); });
+t('proficiencyBonus by level', () => { eq([1,4,5,8,9,12,13,16,17,20].map(R.proficiencyBonus), [2,2,3,3,4,4,5,5,6,6]); });
+t('totalLevel multiclass', () => eq(R.totalLevel([{ level: 3 }, { level: 2 }]), 5));
+t('saveBonus proficient/not', () => { eq(R.saveBonus(sophorke, 'con'), 4); eq(R.saveBonus(sophorke, 'cha'), 6); eq(R.saveBonus(sophorke, 'str'), -1); });
+t('skillBonus proficient', () => { eq(R.skillBonus(sophorke, 'arcana'), 3); eq(R.skillBonus(sophorke, 'athletics'), 1); eq(R.skillBonus(sophorke, 'deception'), 6); });
+t('skillBonus none/half/expertise', () => {
+  eq(R.skillBonus(sophorke, 'stealth'), 2);
+  const bard = { ...sophorke, classes: [{ name: 'Bard', level: 5 }], skillProf: { stealth: 0.5, deception: 2 } };
+  eq(R.skillBonus(bard, 'stealth'), 2 + 1); eq(R.skillBonus(bard, 'deception'), 4 + 6);
+});
+t('passivePerception', () => eq(R.passivePerception(sophorke), 10));
+t('initiative', () => { eq(R.initiative(sophorke), 2); eq(R.initiative({ ...sophorke, initiativeBonus: 3 }), 5); });
+t('spell DC / attack', () => { eq(R.spellSaveDC(sophorke), 14); eq(R.spellAttack(sophorke), 6); });
+t('carrying capacity & weight', () => { eq(R.carryingCapacity(sophorke), 120); eq(R.totalWeight(sophorke.inventory), 35); });
+t('cycleProf', () => eq([0, 1, 2, 0.5].map(R.cycleProf), [1, 2, 0.5, 0]));
+t('suggestedSlots full caster L5', () => eq(R.suggestedSlots([{ name: 'Wizard', level: 5 }]), { 1: { max: 4, used: 0 }, 2: { max: 3, used: 0 }, 3: { max: 2, used: 0 } }));
+t('suggestedSlots half caster L1 none, L2 two', () => { eq(R.suggestedSlots([{ name: 'Paladin', level: 1 }]), null); eq(R.suggestedSlots([{ name: 'Paladin', level: 2 }]), { 1: { max: 2, used: 0 } }); });
+t('suggestedSlots warlock pact', () => eq(R.suggestedSlots([{ name: 'Warlock', level: 3 }]), { pact: { max: 2, used: 0, level: 2 } }));
+t('applyDamage uses temp first', () => { const c = R.applyDamage({ hp: { current: 8, max: 8, temp: 3 } }, 5); eq(c.hp, { current: 6, max: 8, temp: 0 }); });
+t('applyDamage floors at 0', () => eq(R.applyDamage({ hp: { current: 2, max: 8, temp: 0 } }, 9).hp.current, 0));
+t('applyHealing caps at max', () => eq(R.applyHealing({ hp: { current: 6, max: 8, temp: 0 } }, 9).hp.current, 8));
+t('shortRest resets only short features', () => { const c = R.shortRest(sophorke); eq(c.features[0].uses.used, 1); eq(c.features[1].uses.used, 0); eq(c.hp.current, 8); });
+t('longRest resets hp, slots, features, half HD, exhaustion -1', () => {
+  const c = R.longRest({ ...sophorke, hp: { current: 1, max: 8, temp: 4 }, hitDice: { total: 4, used: 4, die: 6 } });
+  eq(c.hp, { current: 8, max: 8, temp: 0 }); eq(c.spellcasting.slots[1].used, 0);
+  eq(c.features.map((f) => f.uses.used), [0, 0]); eq(c.hitDice.used, 2); eq(c.exhaustion, 1); eq(c.deathSaves, { s: 0, f: 0 });
+});
+t('longRest regains at least 1 HD', () => eq(R.longRest(sophorke).hitDice.used, 0));
+t('featureKind classifier', () => {
+  eq(R.featureKind({ name: 'Martial Training', text: 'Proficient with shortbows and longbows.' }), 'proficiency');
+  eq(R.featureKind({ name: 'Stone Gaze', text: 'use your reaction', uses: { max: 1, used: 0, reset: 'long' } }), 'active');
+  eq(R.featureKind({ name: 'Cunning Action', text: 'You can take a bonus action on each of your turns.' }), 'active');
+  eq(R.featureKind({ name: 'Darkvision', text: '60 ft.' }), 'passive');
+  eq(R.featureKind({ name: 'Tool Proficiency', text: '' }), 'proficiency');
+  eq(R.featureKind({ name: 'Anything', text: 'proficient with x', kind: 'passive' }), 'passive');
+});
+t('classSummary', () => eq(R.classSummary({ classes: [{ name: 'Sorcerer', level: 1, subclass: 'Stonegaze' }] }), 'Sorcerer (Stonegaze) 1'));
+
+// ---- markdown ----
+t('heading + paragraph', () => eq(M.render('# Hi\n\nHello **world**'), '<h1>Hi</h1>\n<p>Hello <strong>world</strong></p>'));
+t('escapes html', () => eq(M.render('<script>x<\/script>'), '<p>&lt;script&gt;x&lt;/script&gt;</p>'));
+t('wikilink existing / missing / alias', () => {
+  const html = M.render('See [[Sophorke]] and [[Nowhere|there]]', { resolveLink: (t) => ({ exists: t === 'Sophorke' }) });
+  if (!html.includes('class="wikilink" data-title="Sophorke"')) throw new Error(html);
+  if (!html.includes('class="wikilink missing" data-title="Nowhere" href="#">there</a>')) throw new Error(html);
+});
+t('tags', () => { const html = M.render('a #npc and #quest/main'); if (!html.includes('data-tag="npc"') || !html.includes('data-tag="quest/main"')) throw new Error(html); });
+t('heading is not a tag', () => eq(M.extractTags('# Title\ntext #real'), ['real']));
+t('extractLinks ignores code', () => eq(M.extractLinks('[[A]] `[[B]]` [[C|c]] [[A]]'), ['A', 'C']));
+t('lists nested & tasks', () => {
+  const html = M.render('- a\n  - b\n- [ ] todo\n- [x] done');
+  if (!html.startsWith('<ul><li>a<ul><li>b</li></ul></li><li class="task">')) throw new Error(html);
+  if (!html.includes('checked')) throw new Error(html);
+});
+t('ordered list', () => eq(M.render('1. one\n2. two'), '<ol><li>one</li><li>two</li></ol>'));
+t('table', () => { const html = M.render('| a | b |\n|---|---:|\n| 1 | 2 |'); if (!html.includes('<th style="text-align:left">a</th>') || !html.includes('<td style="text-align:right">2</td>')) throw new Error(html); });
+t('code fence not parsed', () => eq(M.render('```\n**x** [[y]]\n```'), '<pre><code>**x** [[y]]</code></pre>'));
+t('blockquote', () => eq(M.render('> quoted'), '<blockquote><p>quoted</p></blockquote>'));
+t('hr', () => eq(M.render('---'), '<hr>'));
+t('inline code preserved', () => eq(M.render('use `1d20+5` now'), '<p>use <code>1d20+5</code> now</p>'));
+t('unsafe link scheme neutralised', () => { const html = M.render('[x](javascript:alert(1))'); if (html.includes('javascript:')) throw new Error(html); });
+t('toggleTask', () => { eq(M.toggleTask('- [ ] a\n- [x] b', 0), '- [x] a\n- [x] b'); eq(M.toggleTask('- [ ] a\n- [x] b', 1), '- [ ] a\n- [ ] b'); });
+
+// ---- aurora import ----
+const auroraXml = `<?xml version="1.0"?><character version="1.0.3"><display-properties><name>Test</name><race>Cursekeeper</race><class>Sorcerer</class><background>Outlander</background><level>3</level></display-properties>
+<build><input><name>Test</name><experience>900</experience><backstory><![CDATA[Born.]]></backstory><currency><copper>1</copper><silver>2</silver><electrum>0</electrum><gold>10</gold><platinum>0</platinum></currency></input>
+<appearance><age>19</age><height>6'</height><weight>155 lb.</weight><eyes>grey</eyes><skin></skin><hair>snakes</hair></appearance>
+<abilities><strength>8</strength><dexterity>14</dexterity><constitution>14</constitution><intelligence>13</intelligence><wisdom>10</wisdom><charisma>19</charisma></abilities>
+<elements><element type="Level" name="1" id="ID_LEVEL_1">
+<element type="Race" name="Race" registered="ID_X_RACE_GORGONBLOOD"><element type="Racial Trait" name="Hissing Hair" id="ID_X_HH"/><element type="Sub Race" name="Gorgonblood Subrace" registered="ID_X_SUBRACE_GORGONBLOOD_CURSEKEEPER"/></element>
+<element type="Class" name="Class" registered="ID_WOTC_PHB_CLASS_SORCERER"><element type="Proficiency" name="Saving Throw Proficiency (Constitution)" id="ID_PROFICIENCY_SAVINGTHROW_CONSTITUTION"/><element type="Proficiency" name="Skill Proficiency (Sorcerer)" registered="ID_PROFICIENCY_SKILL_ARCANA"/>
+<element type="Class Feature" name="Spellcasting" id="ID_C_SPELL"/><element type="Archetype" name="Sorcerous Origin" registered="ID_X_ARCHETYPE_STONEGAZE"><element type="Archetype Feature" name="Gorgon's Gaze" id="ID_X_GG"/></element></element>
+<element type="Background" name="Background" registered="ID_BACKGROUND_OUTLANDER"><element type="Proficiency" name="Athletics" id="ID_PROFICIENCY_SKILL_ATHLETICS"/><element type="Background Feature" name="Feature: Wanderer" id="ID_BF_W"/></element>
+<element type="Alignment" name="Alignment" registered="ID_ALIGNMENT_LAWFUL_NEUTRAL"/></element>
+<element type="Level" name="2" id="ID_LEVEL_2"/><element type="Level" name="3" id="ID_LEVEL_3"/></elements>
+<equipment><item name="Dagger" id="ID_ITEM_DAGGER" amount="2" weight="1 lb."/><item name="Backpack" amount="1"/></equipment>
+<magic><spellcasting name="Sorcerer" ability="Charisma" attack="6" dc="14"><slots s1="4" s2="2"/><cantrips><spell name="Fire Bolt" level="0"/></cantrips><spells><spell name="Sleep" level="1" known="true"/></spells></spellcasting><additional><spell name="Acid Splash" level="0" source="Gorgon Magic"/></additional></magic></build></character>`;
+t('aurora: identity', () => { const c = parseAurora(auroraXml); eq(c.name, 'Test'); eq(c.race, 'Gorgonblood (Cursekeeper)'); eq(c.background, 'Outlander'); eq(c.classes, [{ name: 'Sorcerer', level: 3, subclass: 'Stonegaze' }]); eq(c.xp, 900); eq(c.alignment, 'Lawful Neutral'); });
+t('aurora: abilities & profs', () => { const c = parseAurora(auroraXml); eq(c.abilities, { str: 8, dex: 14, con: 14, int: 13, wis: 10, cha: 19 }); eq(c.saveProf.con, true); eq(c.skillProf.arcana, 1); eq(c.skillProf.athletics, 1); eq(!!c.skillProf.stealth, false); });
+t('aurora: spells & slots', () => { const c = parseAurora(auroraXml); eq(c.spellcasting.ability, 'cha'); eq(c.spellcasting.slots, { 1: { max: 4, used: 0 }, 2: { max: 2, used: 0 } }); eq(c.spellcasting.spells.map((s) => s.name), ['Fire Bolt', 'Sleep', 'Acid Splash']); eq(c.spellcasting.spells[2].notes, 'Gorgon Magic'); });
+t('aurora: features, items, coins, bio, hp', () => { const c = parseAurora(auroraXml); eq(c.features.map((f) => f.name), ['Hissing Hair', 'Spellcasting', "Gorgon's Gaze", 'Wanderer']); eq(c.inventory.map((i) => [i.name, i.qty, i.weight]), [['Dagger', 2, 1], ['Backpack', 1, 0]]); eq(c.coins, { cp: 1, sp: 2, ep: 0, gp: 10, pp: 0 }); eq(c.bio.backstory, 'Born.'); eq(c.hitDice, { total: 3, used: 0, die: 6 }); eq(c.hp.max, 6 + 2 + 2 * (4 + 2)); });
+t('aurora: rejects non-aurora xml', () => { let threw = false; try { parseAurora('<foo/>'); } catch { threw = true; } if (!threw) throw new Error('no throw'); });
+
+// ---- appearance data (schemes + layouts) ----
+const HEX = /^#[0-9a-fA-F]{6}$/;
+const loaded = () => { if (appearanceError) throw new Error(`js/data/schemes.js + js/data/layouts.js did not load: ${appearanceError.message}`); };
+t('schemes: 10 entries with unique ids', () => {
+  loaded();
+  eq(SCHEMES.length, 10);
+  eq(new Set(SCHEMES.map((s) => s.id)).size, 10);
+  eq(SCHEMES.map((s) => s.id).sort(), ['arcane', 'brass', 'contrast', 'crimson', 'forest', 'frost', 'midnight', 'parchment', 'sepia', 'slate']);
+  eq(SCHEMES.some((s) => s.id === DEFAULT_SCHEME), true, 'default scheme id exists');
+});
+t('schemes: name, description and dark flag', () => {
+  loaded();
+  for (const s of SCHEMES) {
+    if (!s.name || typeof s.name !== 'string') throw new Error(`${s.id} has no name`);
+    if (!s.description || typeof s.description !== 'string') throw new Error(`${s.id} has no description`);
+    if (typeof s.dark !== 'boolean') throw new Error(`${s.id} dark is not a boolean`);
+  }
+});
+t('schemes: swatch has bg/surface/accent/text as 7-char hex', () => {
+  loaded();
+  for (const s of SCHEMES) {
+    for (const k of ['bg', 'surface', 'accent', 'text']) {
+      const v = s.swatch?.[k];
+      if (typeof v !== 'string' || v.length !== 7 || !HEX.test(v)) throw new Error(`${s.id}.swatch.${k} = ${JSON.stringify(v)}`);
+    }
+  }
+});
+t('layouts: 5 entries with unique ids', () => {
+  loaded();
+  eq(LAYOUTS.length, 5);
+  eq(new Set(LAYOUTS.map((l) => l.id)).size, 5);
+  eq(LAYOUTS.map((l) => l.id).sort(), ['compact', 'dashboard', 'focus', 'rail', 'topbar']);
+  eq(LAYOUTS.some((l) => l.id === DEFAULT_LAYOUT), true, 'default layout id exists');
+});
+t('layouts: name, description and inline svg preview', () => {
+  loaded();
+  for (const l of LAYOUTS) {
+    if (!l.name || typeof l.name !== 'string') throw new Error(`${l.id} has no name`);
+    if (!l.description || typeof l.description !== 'string') throw new Error(`${l.id} has no description`);
+    if (typeof l.preview !== 'string' || !l.preview.startsWith('<svg')) throw new Error(`${l.id}.preview does not start with <svg`);
+  }
+});
+
+// ---- spells ----
+{
+  let spellsError = null, list = [], again = null;
+  const S = await import('./js/spells.js').catch((e) => { spellsError = e; return {}; });
+  try { list = await S.loadSpells(); again = await S.loadSpells(); } catch (e) { spellsError ??= e; }
+  const spellsLoaded = () => { if (spellsError) throw new Error(`js/spells.js + js/data/srd-spells.json did not load: ${spellsError.message}`); };
+  t('spells: loads at least 300 SRD spells, cached', () => { spellsLoaded(); if (!(list.length >= 300)) throw new Error(`only ${list.length}`); if (again !== list) throw new Error('second loadSpells() returned a different array'); });
+  t('spells: normalizeName', () => { spellsLoaded(); eq(S.normalizeName('  Melf’s  Acid-Arrow '), 'melfs acidarrow'); });
+  t('spells: findSpell fire bolt is a cantrip', () => { spellsLoaded(); eq(S.findSpell('fire bolt')?.level, 0); });
+  t("spells: findSpell PHB name with ' and ’", () => { spellsLoaded(); for (const n of ["Melf's Acid Arrow", 'Melf’s Acid Arrow']) eq(S.findSpell(n)?.name, 'Acid Arrow', n); });
+  t('spells: findSpell drops a trailing parenthetical', () => { spellsLoaded(); eq(S.findSpell('Acid Splash (Gorgon Magic)')?.name, 'Acid Splash'); });
+  t('spells: findSpell unknown is null', () => { spellsLoaded(); eq(S.findSpell('Nope'), null); });
+  t('spells: searchSpells prefix matches first, short query empty', () => {
+    spellsLoaded();
+    const names = S.searchSpells('fire').map((s) => s.name);
+    if (!names.length || !names[0].startsWith('Fire')) throw new Error(names.join(', '));
+    const other = names.findIndex((n) => !n.startsWith('Fire'));
+    if (other >= 0 && names.slice(other).some((n) => n.startsWith('Fire'))) throw new Error(`prefix matches not first: ${names.join(', ')}`);
+    eq(S.searchSpells('f'), []);
+  });
+  t('spells: spellSummary', () => {
+    spellsLoaded();
+    const fb = S.spellSummary(S.findSpell('Fireball'));
+    if (!fb.includes('3rd-level') || !fb.includes('Evocation')) throw new Error(fb);
+    eq(S.spellSummary(S.findSpell('Fire Bolt')), 'Cantrip · Evocation · 1 action · 120 feet · V, S · Instantaneous');
+    eq(S.spellSummary({ level: 2, school: 'Illusion', time: '1 action', range: 'Self', components: 'V', duration: '1 minute', concentration: true, ritual: true }), '2nd-level Illusion (ritual) · 1 action · Self · V · 1 minute · Concentration');
+  });
+  t('spells: spellMarkdown + table renders', () => {
+    spellsLoaded();
+    const md = S.spellMarkdown(S.findSpell('Sleep'));
+    if (!md.includes('At higher levels')) throw new Error(md.slice(0, 200));
+    if (!md.startsWith('**Casting time** 1 action · **Range** 90 feet · **Components** V, S, M (a pinch of fine sand, rose petals, or a cricket) · **Duration** 1 minute')) throw new Error(md.slice(0, 200));
+    if (!M.render(S.findSpell('Confusion').desc).includes('<table>')) throw new Error('Confusion table did not render');
+  });
+  t('spells: every entry has the 13 keys with the right types', () => {
+    spellsLoaded();
+    const types = { name: 'string', level: 'number', school: 'string', time: 'string', range: 'string', components: 'string', material: 'string', duration: 'string', concentration: 'boolean', ritual: 'boolean', classes: 'object', desc: 'string', higher: 'string' };
+    for (const sp of list) {
+      eq(Object.keys(sp).sort(), Object.keys(types).sort(), sp.name);
+      for (const [k, ty] of Object.entries(types)) if (typeof sp[k] !== ty) throw new Error(`${sp.name}.${k} is ${typeof sp[k]}`);
+      if (!Number.isInteger(sp.level) || sp.level < 0 || sp.level > 9) throw new Error(`${sp.name}.level = ${sp.level}`);
+      if (!Array.isArray(sp.classes) || !sp.classes.every((c) => typeof c === 'string')) throw new Error(`${sp.name}.classes`);
+      if (!sp.name || !sp.desc) throw new Error(`${sp.name} has an empty name or desc`);
+    }
+  });
+}
+
+// ---- wysiwyg ----
+{
+  let W = {}, wyError = null;
+  try { W = await import('./js/wysiwyg.js'); } catch (e) { wyError = e; }
+  const wyLoaded = () => { if (wyError) throw new Error(`js/wysiwyg.js did not load: ${wyError.message}`); };
+  const wyResolve = (title) => ({ exists: title !== 'Nowhere' && title !== 'Foo' });
+  const wyDom = (html) => { const d = document.createElement('div'); d.innerHTML = html; return d; };
+  const h2m = (html) => W.htmlToMarkdown(wyDom(html));
+  const wyRoundTrip = (md) => { const html = M.render(md, { resolveLink: wyResolve }); eq(M.render(W.htmlToMarkdown(wyDom(html)), { resolveLink: wyResolve }), html, JSON.stringify(md)); };
+  const wyAsync = async (name, fn) => {
+    try { await fn(); pass++; out.insertAdjacentHTML('beforeend', `<div class="pass">✔ ${name}</div>`); }
+    catch (e) { fail++; out.insertAdjacentHTML('beforeend', `<div class="fail">✘ ${name} — ${e.message}</div>`); console.error(name, e); }
+  };
+  // Editors; pass wyHost to attach them (Selection and execCommand only work on nodes inside the document).
+  const wyHost = document.createElement('div');
+  wyHost.style.cssText = 'position:fixed;left:-10000px;top:0;width:640px';
+  document.body.append(wyHost);
+  const wyEditor = (markdown, opts = {}, host = null) => {
+    const mount = document.createElement('div');
+    if (host) host.append(mount);
+    const ed = W.createEditor({ mount, markdown, resolveLink: wyResolve, ...opts });
+    return { ed, mount, root: mount.querySelector('.wysiwyg') };
+  };
+  const wyCaret = (node, start, end = start) => { const r = document.createRange(); r.setStart(node, start); r.setEnd(node, end); const s = getSelection(); s.removeAllRanges(); s.addRange(r); };
+  const wyClick = (box) => { box.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })); box.click(); };
+  const WY_FIXTURE = [
+    '# Heading One', '', '## Heading Two', '', '### Heading Three', '',
+    'Plain **bold**, *italic*, ~~strike~~, ==highlight== and `inline code` text.',
+    'A second line after a break, a [web link](https://example.com/page) and a #npc tag.', '',
+    'See [[Sophorke]] and [[Nowhere|over there]] for more.', '',
+    '![Map of the vale](https://example.com/map.png)', '',
+    '- one', '  - nested a', '  - nested b', '- two', '  1. first', '  2. second', '',
+    '1. alpha', '2. beta', '',
+    '- [ ] open task', '- [x] done task', '',
+    '> Quoted text', '> second quoted line', '',
+    '---', '',
+    '```js', 'const x = 1;', '', 'if (x) { return "<b>"; }', '```', '',
+    '| Left | Right | Center |', '| --- | ---: | :---: |', '| a | b | c |', '| **1** | [[Sophorke]] |  |',
+  ].join('\n');
+
+  t('wysiwyg: exports htmlToMarkdown and createEditor', () => { wyLoaded(); eq([typeof W.htmlToMarkdown, typeof W.createEditor], ['function', 'function']); });
+  t('wysiwyg: fixture → render → htmlToMarkdown gives the same markdown', () => { wyLoaded(); eq(h2m(M.render(WY_FIXTURE, { resolveLink: wyResolve })), WY_FIXTURE); });
+  t('wysiwyg: fixture render → serialize → render gives identical HTML', () => { wyLoaded(); wyRoundTrip(WY_FIXTURE); });
+  t('wysiwyg: more constructs round-trip to identical HTML', () => {
+    wyLoaded();
+    for (const md of [
+      '#### Four\n\n##### Five\n\n###### Six',
+      '__strong__ and _em_ and a*b*c',
+      '**bold _and italic_ text** then *italic **bold** inside*',
+      '***both*** and ~~**struck bold**~~ and ==*marked*==',
+      '1. one\n   - [ ] sub task\n   - [x] sub done\n2. two',
+      '> quote\n>\n> - item\n>\n> > deeper',
+      '```\n**not bold** [[nope]] #nontag\n```',
+      '[![Map](https://example.com/m.png)](https://example.com) and [x](javascript:alert(1))',
+      '[[Tom & Jerry]] and [[A "quoted" title|alias & co]] and #Npc',
+      '| **A** | B |\n| :---: | --- |\n| [[X]] |  |',
+      'line one\nline two\nline three',
+    ]) wyRoundTrip(md);
+  });
+  t('wysiwyg: canonical markdown comes back unchanged', () => {
+    wyLoaded();
+    for (const md of ['[[Tom & Jerry]] and [[A "quoted" title|alias & co]] and #Npc', '| **A** | B |\n| :---: | --- |\n| [[X]] |  |',
+      '> quote\n>\n> - item\n>\n> > deeper', '```\n**not bold** [[nope]] #nontag\n```']) eq(h2m(M.render(md, { resolveLink: wyResolve })), md);
+  });
+  t('wysiwyg: browser HTML — div lines, b/i, nested ul', () => {
+    wyLoaded();
+    eq(h2m('<div>para<br>line</div><div><b>bold</b> and <i>it</i></div><ul><li>a<ul><li>b</li></ul></li></ul>'), 'para\nline\n\n**bold** and *it*\n\n- a\n  - b');
+  });
+  t('wysiwyg: browser HTML tolerance (span styles, nbsp, ul in ul, merged runs, empty blocks, pre br, tables, links)', () => {
+    wyLoaded();
+    const cases = [
+      ['<p><span style="font-weight: bold;">B</span>&nbsp;and&nbsp;<span style="font-style: italic;">I</span> <s>gone</s> <strike>old</strike> <u>under</u> <span style="font-weight: 700; font-style: italic">both</span></p>',
+        '**B** and *I* ~~gone~~ ~~old~~ under __*both*__'],
+      ['<ul><li>a</li><ul><li>b</li></ul><li>c</li></ul>', '- a\n  - b\n- c'],
+      ['<ol><li>one</li><li>two<ol><li>deep</li></ol></li></ol>', '1. one\n2. two\n  1. deep'],
+      ['<p><b>a</b><b>b</b> <em>c</em><i>d</i></p>', '**ab** *cd*'],
+      ['<p>a</p><p><br></p><div><br></div><p>b<br></p><p>&nbsp;</p>', 'a\n\nb'],
+      ['<h2>Title<br></h2><h3>  </h3>', '## Title'],
+      ['<pre>line1<br>line2<br></pre>', '```\nline1\nline2\n```'],
+      ['<table><tr><td>a</td><td style="text-align: right">b</td><td align="center">c</td></tr><tr><td>1</td><td>2</td></tr></table>',
+        '| a | b | c |\n| --- | ---: | :---: |\n| 1 | 2 |  |'],
+      ['<p><a class="wikilink" data-title="Foo" href="#">the foo</a> <a class="tag" data-tag="npc" href="#">#NPC</a> <a href="https://x.test/a b">site</a></p>',
+        '[[Foo|the foo]] #NPC [site](https://x.test/a%20b)'],
+      ['<blockquote>q1<br>q2</blockquote>', '> q1\n> q2'],
+      ['loose text<div>next</div>', 'loose text\n\nnext'],
+      ['<p>x\u200by &amp; <code>a&lt;b</code></p>', 'xy & `a<b`'],
+      ['<ul><li><p>para item</p></li><li class="task"><input type="checkbox"> <span>todo</span></li></ul>', '- para item\n- [ ] todo'],
+    ];
+    cases.forEach(([html, md], i) => eq(h2m(html), md, `case ${i}:`));
+  });
+  t('wysiwyg: task state is read from the checkbox checked property', () => {
+    wyLoaded();
+    const d = wyDom('<ul><li class="task"><input type="checkbox"> <span>x</span></li><li class="task"><input type="checkbox" checked> <span>y</span></li></ul>');
+    const [a, b] = d.querySelectorAll('input');
+    a.checked = true;
+    b.checked = false;
+    eq(W.htmlToMarkdown(d), '- [x] x\n- [ ] y');
+  });
+  t('wysiwyg: blank runs collapse, code keeps its blank lines, no trailing blank lines', () => {
+    wyLoaded();
+    eq(h2m('<p>a</p>\n\n\n<p><br></p><p>&nbsp;</p><pre><code>x\n\n\n\ny</code></pre><p>b</p><p> </p>'), 'a\n\n```\nx\n\n\n\ny\n```\n\nb');
+  });
+
+  // ---- createEditor in a detached mount
+  t('wysiwyg: createEditor builds div.wysiwyg.md; set/getMarkdown keep the fixture', () => {
+    wyLoaded();
+    const { ed, mount, root } = wyEditor(WY_FIXTURE);
+    if (!root || !root.matches('div.wysiwyg.md')) throw new Error('no div.wysiwyg.md in the mount');
+    eq([root.getAttribute('contenteditable'), root.getAttribute('spellcheck')], ['true', 'true']);
+    eq(ed.getMarkdown(), WY_FIXTURE);
+    if (!root.querySelector('a.wikilink.missing[data-title="Nowhere"]')) throw new Error('missing wikilink not marked .missing');
+    ed.setMarkdown('# Other\n\nnote');
+    eq(ed.getMarkdown(), '# Other\n\nnote');
+    ed.setMarkdown(WY_FIXTURE);
+    eq(ed.getMarkdown(), WY_FIXTURE);
+    ed.destroy();
+    eq(mount.children.length, 0);
+  });
+  t('wysiwyg: wikilink titles with apostrophes survive a load and save', () => {
+    wyLoaded();
+    const md = "[[Bob's Tavern]] and [[Gorgon's Gaze|the gaze]] but `[[Code's]]` stays code";
+    const { ed, root } = wyEditor(md);
+    eq(ed.getMarkdown(), md);
+    eq(root.querySelector('a.wikilink').getAttribute('data-title'), "Bob's Tavern");
+    ed.destroy();
+  });
+  t('wysiwyg: clicking a wikilink or a tag calls onOpenLink / onTag', () => {
+    wyLoaded();
+    const opened = [];
+    const tags = [];
+    const { ed, root } = wyEditor('See [[Sophorke]], [[Nowhere|over there]] and #NPC', { onOpenLink: (x) => opened.push(x), onTag: (x) => tags.push(x) });
+    root.querySelectorAll('a.wikilink').forEach((a) => a.click());
+    root.querySelector('a.tag').click();
+    eq(opened, ['Sophorke', 'Nowhere']);
+    eq(tags, ['npc']);
+    ed.destroy();
+  });
+  t('wysiwyg: clicking a task checkbox toggles [ ] and [x]', () => {
+    wyLoaded();
+    const { ed, root } = wyEditor('- [ ] scout the keep\n- [x] buy rope');
+    const box = root.querySelector('li.task input[type="checkbox"]');
+    wyClick(box);
+    eq(ed.getMarkdown(), '- [x] scout the keep\n- [x] buy rope');
+    if (!box.parentNode.querySelector('span').classList.contains('done')) throw new Error('span.done not set');
+    wyClick(box);
+    eq(ed.getMarkdown(), '- [ ] scout the keep\n- [x] buy rope');
+    ed.destroy();
+  });
+  t('wysiwyg: readOnly — not editable, exec is a no-op, checkboxes stay, links still open', () => {
+    wyLoaded();
+    const opened = [];
+    const { ed, root } = wyEditor('- [ ] task\n\n[[Sophorke]]', { readOnly: true, onOpenLink: (x) => opened.push(x) });
+    eq(root.getAttribute('contenteditable'), 'false');
+    eq(ed.exec('bold'), false);
+    const box = root.querySelector('input[type="checkbox"]');
+    box.click();
+    eq(box.checked, false);
+    eq(ed.getMarkdown(), '- [ ] task\n\n[[Sophorke]]');
+    root.querySelector('a.wikilink').click();
+    eq(opened, ['Sophorke']);
+    ed.destroy();
+  });
+  t('wysiwyg: exec task / hr / table without a selection (detached)', () => {
+    wyLoaded();
+    const run = (md, cmd, arg) => { const { ed } = wyEditor(md); ed.exec(cmd, arg); const res = ed.getMarkdown(); ed.destroy(); return res; };
+    eq(run('buy rope', 'task'), '- [ ] buy rope');
+    eq(run('- [ ] a', 'task'), '- [ ] a\n- [ ] ');
+    eq(run('buy rope', 'hr'), 'buy rope\n\n---');
+    eq(run('buy rope', 'table'), 'buy rope\n\n|  |  |\n| --- | --- |\n|  |  |');
+  });
+
+  // ---- createEditor attached to the page (real selection)
+  t('wysiwyg: exec("bold") on a selected word inserts strong', () => {
+    wyLoaded();
+    const { ed, root } = wyEditor('hello world', {}, wyHost);
+    try {
+      root.focus();
+      wyCaret(root.querySelector('p').firstChild, 6, 11);
+      ed.exec('bold');
+      eq(ed.getMarkdown(), 'hello **world**');
+    } finally { ed.destroy(); }
+  });
+  t('wysiwyg: exec highlight / code wrap the selection; wikilink / tag insert at the caret', () => {
+    wyLoaded();
+    for (const [md, start, end, cmd, arg, want] of [
+      ['mark this word', 5, 9, 'highlight', undefined, 'mark ==this== word'],
+      ['use roll here', 4, 8, 'code', undefined, 'use `roll` here'],
+      ['meet you', 5, 5, 'wikilink', 'Sophorke', 'meet [[Sophorke]] you'],
+      ['loot here', 5, 5, 'tag', 'treasure', 'loot #treasure here'],
+    ]) {
+      const { ed, root } = wyEditor(md, {}, wyHost);
+      try {
+        root.focus();
+        wyCaret(root.querySelector('p').firstChild, start, end);
+        ed.exec(cmd, arg);
+        eq(ed.getMarkdown(), want, cmd);
+      } finally { ed.destroy(); }
+    }
+  });
+  t('wysiwyg: typing [[Foo]] turns into a wikilink anchor', () => {
+    wyLoaded();
+    const { ed, root } = wyEditor('see', {}, wyHost);
+    try {
+      root.focus();
+      const text = root.querySelector('p').firstChild;
+      text.data = 'see [[Foo]]';
+      wyCaret(text, text.length);
+      root.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: ']' }));
+      const a = root.querySelector('a.wikilink[data-title="Foo"]');
+      if (!a) throw new Error(`no a.wikilink[data-title="Foo"]: ${root.innerHTML}`);
+      if (!a.classList.contains('missing')) throw new Error('Foo does not exist, so the link should be .missing');
+      eq(ed.getMarkdown().trimEnd(), 'see [[Foo]]');
+    } finally { ed.destroy(); }
+  });
+  t('wysiwyg: Enter after a task adds an unchecked task; Enter on the empty task leaves the list', () => {
+    wyLoaded();
+    const { ed, root } = wyEditor('- [x] pack rations', {}, wyHost);
+    try {
+      root.focus();
+      const text = root.querySelector('li.task span').firstChild;
+      wyCaret(text, text.length);
+      const enter = () => root.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+      enter();
+      eq(ed.getMarkdown(), '- [x] pack rations\n- [ ] ');
+      enter();
+      eq(ed.getMarkdown(), '- [x] pack rations');
+      if (!root.querySelector('ul + p')) throw new Error('no paragraph after the list');
+    } finally { ed.destroy(); }
+  });
+  t('wysiwyg: heading, quote and list commands (toggle on and off)', () => {
+    wyLoaded();
+    const { ed, root } = wyEditor('title', {}, wyHost);
+    try {
+      root.focus();
+      const caretInTitle = () => {
+        const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+        let n = w.nextNode();
+        while (n && !n.data.includes('title')) n = w.nextNode();
+        wyCaret(n, n.data.indexOf('title') + 2);
+      };
+      for (const [cmd, want] of [['h2', '## title'], ['h2', 'title'], ['quote', '> title'], ['quote', 'title'], ['ul', '- title']]) {
+        caretInTitle();
+        ed.exec(cmd);
+        eq(ed.getMarkdown(), want, cmd);
+      }
+    } finally { ed.destroy(); }
+  });
+  t('wysiwyg: paste inserts plain text only', () => {
+    wyLoaded();
+    const { ed, root } = wyEditor('a', {}, wyHost);
+    try {
+      root.focus();
+      wyCaret(root.querySelector('p').firstChild, 1);
+      const data = new DataTransfer();
+      data.setData('text/plain', ' **b** <i>c</i>');
+      data.setData('text/html', '<b>evil</b>');
+      const ev = new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: data });
+      root.dispatchEvent(ev);
+      eq(ev.defaultPrevented, true, 'paste default prevented');
+      eq(ed.getMarkdown(), 'a **b** <i>c</i>');
+      if (root.querySelector('b, i, strong, em')) throw new Error('foreign HTML got into the editor');
+    } finally { ed.destroy(); }
+  });
+  await wyAsync('wysiwyg: onChange is debounced and fires once with the new markdown', async () => {
+    wyLoaded();
+    const calls = [];
+    const { ed, root } = wyEditor('hello', { onChange: (md) => calls.push(md) }, wyHost);
+    try {
+      root.focus();
+      const text = root.querySelector('p').firstChild;
+      wyCaret(text, text.length);
+      ed.exec('insertText', '!');
+      ed.exec('insertText', '?');
+      eq(calls.length, 0, 'onChange ran synchronously');
+      await new Promise((r) => setTimeout(r, 400));
+      eq(calls, ['hello!?']);
+    } finally { ed.destroy(); }
+  });
+  wyHost.remove();
+}
+
+// ---- overrides, rests, aurora merge, wikilink escaping ----
+{
+  const base = { ...sophorke, hp: { current: 8, max: 8, temp: 0 }, ac: 12, speed: 35, overrides: [
+    { id: 'a', target: 'abilities.str', mode: 'add', value: 2, duration: 'long' },
+    { id: 'b', target: 'ac', mode: 'add', value: 1, duration: 'permanent' },
+    { id: 'c', target: 'hp.max', mode: 'add', value: 5, duration: 'short' },
+    { id: 'd', target: 'skillProf.stealth', mode: 'set', value: 2, duration: 'manual' },
+    { id: 'e', target: 'spellSlots.2', mode: 'add', value: 1, duration: 'long' },
+    { id: 'f', target: 'saveBonus.con', mode: 'add', value: 1, duration: 'manual' },
+    { id: 'g', target: 'profBonusExtra', mode: 'add', value: 1, duration: 'manual' },
+    { id: 'h', target: 'attackBonus', mode: 'add', value: 1, duration: 'short' },
+  ] };
+  t('applyOverrides adds and sets', () => {
+    const e = R.applyOverrides(base);
+    eq(e.abilities.str, 10); eq(e.ac, 13); eq(e.hp.max, 13); eq(e.skillProf.stealth, 2); eq(e.spellcasting.slots[2], { max: 1, used: 0 });
+    eq(R.saveBonus(e, 'con'), 2 + 3 + 1); eq(R.charProf(e), 3); eq(R.skillBonus(e, 'stealth'), 2 + 6);
+    eq(R.isOverridden(e, 'ac'), true); eq(R.isOverridden(e, 'speed'), false); eq(base.ac, 12, 'base untouched');
+  });
+  t('attack helpers include global bonuses', () => { const e = R.applyOverrides(base); eq(R.attackToHit(e, { toHit: 4 }), 5); eq(R.attackDamage(e, { damage: '1d8+2' }), '1d8+2'); eq(R.attackToHit(e, { toHit: null }), null); });
+  t('expireOverrides', () => { eq(R.expireOverrides(base.overrides, 'short').map((o) => o.id), ['a', 'b', 'd', 'e', 'f', 'g']); eq(R.expireOverrides(base.overrides, 'long').map((o) => o.id), ['b', 'd', 'f', 'g']); });
+  t('shortRest/longRest expire overrides and use effective max HP', () => {
+    const s = R.shortRest(base); eq(s.overrides.map((o) => o.id), ['a', 'b', 'd', 'e', 'f', 'g']);
+    const l = R.longRest({ ...base, hp: { current: 1, max: 8, temp: 0 } }); eq(l.overrides.map((o) => o.id), ['b', 'd', 'f', 'g']); eq(l.hp.current, 8);
+    const l2 = R.longRest({ ...base, overrides: [{ id: 'x', target: 'hp.max', mode: 'add', value: 4, duration: 'permanent' }] }); eq(l2.hp.current, 12);
+  });
+  t('effectiveMaxHp', () => eq(R.effectiveMaxHp(base), 13));
+  t('mergeAurora keeps play state, replaces base, bumps HP on level up', async () => {
+    const { mergeAurora } = await import('./js/aurora.js');
+    const existing = { name: 'Soph', race: 'Old', classes: [{ name: 'Sorcerer', level: 1 }], background: 'Outlander', alignment: 'LN', abilities: { str: 8, dex: 14, con: 14, int: 13, wis: 10, cha: 19 }, saveProf: { con: true }, skillProf: { arcana: 1 },
+      hp: { current: 5, max: 8, temp: 2 }, hitDice: { total: 1, used: 1, die: 6 }, xp: 300, conditions: ['Prone'], inventory: [{ name: 'Rope' }], coins: { gp: 10 }, overrides: [{ id: 'o', target: 'ac', mode: 'add', value: 1, duration: 'manual' }],
+      spellcasting: { ability: 'cha', slots: { 1: { max: 2, used: 2 } }, spells: [{ id: 's1', name: 'Shield', level: 1, prepared: false, conc: false, notes: 'mine' }] }, features: [{ name: 'Old feat' }], bio: { backstory: 'kept', traits: '' }, source: 'manual' };
+    const imported = { race: 'New', classes: [{ name: 'Sorcerer', level: 2 }], background: 'Outlander', alignment: 'LN', abilities: { str: 8, dex: 14, con: 14, int: 13, wis: 10, cha: 19 }, saveProf: { con: true, cha: true }, skillProf: { arcana: 1, deception: 1 },
+      hp: { current: 14, max: 14, temp: 0 }, hitDice: { total: 2, used: 0, die: 6 }, xp: 0, spellcasting: { ability: 'cha', slots: { 1: { max: 3, used: 0 } }, spells: [{ id: 'n1', name: 'Shield', level: 1, prepared: true, conc: false, notes: '' }, { id: 'n2', name: 'Sleep', level: 1, prepared: true, conc: false, notes: '' }] }, features: [{ name: 'New feat' }], bio: { backstory: 'from aurora', traits: 'new trait' } };
+    const m = mergeAurora(existing, imported);
+    eq(m.race, 'New'); eq(m.classes[0].level, 2); eq(m.saveProf.cha, true); eq(m.skillProf.deception, 1);
+    eq(m.hp, { current: 5 + 6, max: 8 + 6, temp: 2 }); eq(m.hitDice, { total: 2, die: 6, used: 1 }); eq(m.xp, 300);
+    eq(m.conditions, ['Prone']); eq(m.inventory.length, 1); eq(m.coins.gp, 10); eq(m.overrides.length, 1);
+    eq(m.spellcasting.slots[1], { max: 3, used: 2 }); eq(m.spellcasting.spells.map((s) => [s.name, s.prepared, s.notes]), [['Shield', false, 'mine'], ['Sleep', true, '']]);
+    eq(m.features.map((f) => f.name), ['New feat']); eq(m.bio.backstory, 'kept'); eq(m.bio.traits, 'new trait'); eq(m.source, 'aurora');
+  });
+  t('wikilink titles with apostrophes and ampersands render intact', () => {
+    const html = M.render("See [[Sophorke's master]] and [[Rock & Roll|the band]] and `[[not a link]]`", { resolveLink: () => ({ exists: true }) });
+    if (!html.includes('data-title="Sophorke&#39;s master"') || !html.includes('>Sophorke&#39;s master</a>')) throw new Error(html);
+    if (!html.includes('data-title="Rock &amp; Roll"') || !html.includes('>the band</a>')) throw new Error(html);
+    if (!html.includes('<code>[[not a link]]</code>')) throw new Error(html);
+  });
+  t('inline code with html inside is escaped once', () => eq(M.render('a `<b>` b'), '<p>a <code>&lt;b&gt;</code> b</p>'));
+}
+
+// ---- aurora content (element descriptions) ----
+{
+  const A = await import('./js/auroraContent.js');
+  const xml = `<?xml version="1.0"?><elements>
+<element name="Hissing Hair" type="Racial Trait" source="Wrath of Olympus" id="ID_X_HH"><description><p>You can't be surprised while you are conscious.</p></description><sheet><description>You can't be surprised while you are conscious.</description></sheet></element>
+<element name="Stone Gaze" type="Racial Trait" source="Wrath of Olympus" id="ID_X_SG"><description><p>Whenever a creature hits you, <b>force</b> it to gaze.</p><ul><li>First</li><li>Second</li></ul></description><sheet usage="1/Long Rest" action="Reaction"><description>Short: DC {{stone gaze:dc}} Con save, restrained.</description><description level="5">Short: DC {{stone gaze:dc}} Con save, petrified.</description></sheet><rules><stat name="x" value="1"/></rules></element>
+<element name="Acid Splash" type="Spell" source="PHB" id="ID_X_AS"><description><p>Acid.</p></description><setters><set name="level">0</set><set name="school">Conjuration</set><set name="time">1 action</set><set name="range">60 feet</set><set name="hasVerbalComponent">true</set><set name="hasSomaticComponent">true</set><set name="hasMaterialComponent">false</set><set name="materialComponent" /><set name="isConcentration">false</set><set name="duration">Instantaneous</set></setters></element>
+<element name="Weapon Proficiency (Dagger)" type="Proficiency" id="ID_X_PROF" />
+</elements>`;
+  const els = A.parseElements(xml, 'test');
+  t('aurora content: parses elements with descriptions only', () => { eq(els.map((e) => e.id), ['ID_X_HH', 'ID_X_SG', 'ID_X_AS']); });
+  t('aurora content: description html -> markdown', () => { eq(els[1].desc, 'Whenever a creature hits you, **force** it to gaze.\n\n- First\n- Second'); eq(els[0].desc, "You can't be surprised while you are conscious."); });
+  t('aurora content: sheet variants, usage, action, placeholders', () => { eq(els[1].usage, '1/Long Rest'); eq(els[1].action, 'Reaction'); eq(els[1].sheet.length, 2); eq(els[1].sheet[1].level, 5); eq(els[1].sheet[0].text, 'Short: DC the DC Con save, restrained.'); });
+  t('aurora content: sheetTextFor picks the level', () => { eq(A.sheetTextFor(els[1], 1).includes('restrained'), true); eq(A.sheetTextFor(els[1], 5).includes('petrified'), true); eq(A.sheetTextFor(els[1], 20).includes('petrified'), true); });
+  t('aurora content: featureTextFrom = summary + full text, no duplicate', () => { eq(A.featureTextFrom(els[0], 1), "You can't be surprised while you are conscious."); const t2 = A.featureTextFrom(els[1], 1); if (!t2.startsWith('Short: DC the DC Con save, restrained.\n\nWhenever')) throw new Error(t2); });
+  t('aurora content: usesFromUsage', () => { eq(A.usesFromUsage('1/Long Rest'), { max: 1, used: 0, reset: 'long' }); eq(A.usesFromUsage('2/Short Rest'), { max: 2, used: 0, reset: 'short' }); eq(A.usesFromUsage('{{proficiency}}/Long Rest', 3), { max: 3, used: 0, reset: 'long' }); eq(A.usesFromUsage('1/Turn'), null); eq(A.usesFromUsage(''), null); });
+  t('aurora content: spell setters -> meta + summary', () => { eq(els[2].meta.level, '0'); eq(A.spellSummaryFromMeta(els[2].meta), 'Cantrip · Conjuration · 1 action · 60 feet · V, S · Instantaneous'); });
+  t('aurora content: placeholders', () => { eq(A.fillPlaceholders('DC {{proficiency}} and {{charisma:modifier}} at {{sorcerer:level}}'), 'DC your proficiency bonus and your Charisma modifier at your level in that class'); });
+  t('aurora content: table html -> pipe table', () => { eq(A.htmlToMd('<table><tr><th>A</th><th>B</th></tr><tr><td>1</td><td>2</td></tr></table>'), '| A | B |\n| --- | --- |\n| 1 | 2 |'); });
+}
+
+document.getElementById('summary').textContent = `${pass} passed, ${fail} failed`;
+document.getElementById('summary').className = fail ? 'fail' : 'pass';
+</script>
+</body>
+</html>

@@ -1,0 +1,58 @@
+/* ---------- Settings: layout + colour-scheme pickers ----------
+   Tiles for the "Layout" and "Colour scheme" cards in Settings.
+   Only tokens defined in css/app.css (and re-defined per scheme in css/themes.css) are used. */
+
+.tile-grid { display: grid; gap: 10px; margin-top: 10px; }
+.tile-grid.layouts { grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); }
+.tile-grid.schemes { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
+@media (max-width: 480px) {
+  .tile-grid.layouts, .tile-grid.schemes { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+}
+
+.tile {
+  display: flex; flex-direction: column; align-items: stretch; gap: 6px;
+  padding: 10px; text-align: left; width: 100%;
+  background: var(--raised); color: var(--text);
+  border: 1px solid var(--border-strong); border-radius: var(--radius);
+  transition: border-color .15s, background .15s;
+}
+.tile:hover { border-color: var(--accent); }
+.tile.active { border-color: var(--accent); background: var(--accent-soft); box-shadow: 0 0 0 1px var(--accent) inset; }
+
+.tile-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.tile-head b { font-weight: 600; font-size: .95rem; }
+.tile.active .tile-head b { color: var(--accent); }
+.tile-desc { color: var(--muted); line-height: 1.35; }
+
+.tile-chip {
+  margin-left: auto; flex: none;
+  font-size: .7rem; letter-spacing: .04em; text-transform: uppercase;
+  padding: 2px 8px; border-radius: 999px;
+  background: var(--accent); color: var(--accent-ink); font-weight: 600;
+}
+.tile-tag {
+  flex: none; font-size: .68rem; letter-spacing: .06em; text-transform: uppercase;
+  padding: 1px 7px; border-radius: 999px;
+  border: 1px solid var(--border-strong); color: var(--muted);
+}
+
+/* Layout preview: the SVG from js/data/layouts.js, drawn in currentColor. */
+.tile-preview {
+  display: block; width: 96px; height: 60px; flex: none;
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--bg); color: var(--muted); overflow: hidden;
+}
+.tile-preview svg { display: block; width: 100%; height: 100%; }
+.tile:hover .tile-preview, .tile.active .tile-preview { color: var(--accent); border-color: var(--accent); }
+
+/* Colour swatch strip: bg / surface / accent / text, straight from the scheme data. */
+.tile-swatch {
+  display: flex; height: 28px; border-radius: var(--radius-sm);
+  border: 1px solid var(--border-strong); overflow: hidden;
+}
+.tile-swatch > i { flex: 1; display: block; }
+
+.appearance-caption {
+  margin: 12px 0 0; padding-top: 10px; border-top: 1px solid var(--border);
+  color: var(--muted); font-size: .9rem;
+}

@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#15120f">
+<meta name="color-scheme" content="dark light">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="description" content="Tome & Table: a self-hosted D&D 5e character sheet and campaign notebook.">
+<title>Tome &amp; Table</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="stylesheet" href="css/app.css">
+<link rel="stylesheet" href="css/themes.css">
+<link rel="stylesheet" href="css/layouts.css">
+<link rel="stylesheet" href="css/settings-appearance.css">
+<link rel="stylesheet" href="css/wysiwyg.css">
+<link rel="stylesheet" href="css/v2.css">
+</head>
+<body>
+<div id="app" class="app" data-view="characters" data-layout="rail">
+  <nav id="rail" class="rail" aria-label="Main">
+    <div class="rail-logo" title="Tome &amp; Table">T&amp;T</div>
+    <button type="button" class="rail-btn" data-view="characters" aria-label="Characters"><span class="rail-icon" data-icon="users"></span><span class="rail-label">Party</span></button>
+    <button type="button" class="rail-btn" data-view="sheet" aria-label="Character sheet"><span class="rail-icon" data-icon="sheet"></span><span class="rail-label">Sheet</span></button>
+    <button type="button" class="rail-btn" data-view="notes" aria-label="Notes"><span class="rail-icon" data-icon="notes"></span><span class="rail-label">Notes</span></button>
+    <button type="button" class="rail-btn" data-view="campaign" aria-label="Campaigns"><span class="rail-icon" data-icon="link"></span><span class="rail-label">Campaign</span></button>
+    <button type="button" class="rail-btn" data-action="palette" aria-label="Search and commands (Ctrl+K)" title="Search and commands (Ctrl+K or Ctrl+/)"><span class="rail-icon" data-icon="search"></span><span class="rail-label">Search</span></button>
+    <div class="rail-spacer"></div>
+    <button type="button" class="rail-btn" data-view="settings" aria-label="Settings"><span class="rail-icon" data-icon="settings"></span><span class="rail-label">Settings</span></button>
+  </nav>
+
+  <div class="center">
+    <header id="header" class="topbar"></header>
+    <main id="main" class="main"></main>
+  </div>
+
+  <aside id="utility" class="utility" aria-label="Linked notes"></aside>
+
+  <nav id="bottomnav" class="bottomnav" aria-label="Main">
+    <button type="button" class="rail-btn" data-view="characters"><span class="rail-icon" data-icon="users"></span><span class="rail-label">Party</span></button>
+    <button type="button" class="rail-btn" data-view="sheet"><span class="rail-icon" data-icon="sheet"></span><span class="rail-label">Sheet</span></button>
+    <button type="button" class="rail-btn" data-view="notes"><span class="rail-icon" data-icon="notes"></span><span class="rail-label">Notes</span></button>
+    <button type="button" class="rail-btn" data-view="campaign"><span class="rail-icon" data-icon="link"></span><span class="rail-label">Campaign</span></button>
+    <button type="button" class="rail-btn" data-action="palette" aria-label="Search and commands (Ctrl+K)" title="Search and commands (Ctrl+K or Ctrl+/)"><span class="rail-icon" data-icon="search"></span><span class="rail-label">Search</span></button>
+    <button type="button" class="rail-btn" data-view="settings"><span class="rail-icon" data-icon="settings"></span><span class="rail-label">Settings</span></button>
+  </nav>
+</div>
+<noscript><p style="padding:20px">Tome &amp; Table needs JavaScript.</p></noscript>
+<script type="module" src="js/app.js"></script>
+</body>
+</html>

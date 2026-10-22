@@ -1,0 +1,10 @@
+services:
+  tome:
+    build: .
+    ports:
+      - "8787:8787"
+    volumes:
+      - ./data:/data
+    environment:
+      ALLOW_SIGNUP: "1"
+    restart: unless-stopped
